@@ -1,5 +1,5 @@
 import numpy as np
-import src.functions as fns
+import functions
 
 NEURAL_NET = [
     {"input_dim": 2, "output_dim": 4, "activation": "relu"},
@@ -12,10 +12,10 @@ NEURAL_NET = [
 def single_layer_forward_propagation(A_prev, W_curr, b_curr, activation="relu"):
     Z_curr = np.dot(W_curr, A_prev) + b_curr
 
-    if activation is "relu":
-        activation_func = fns.relu
-    elif activation is "sigmoid":
-        activation_func = fns.sigmoid
+    if activation == "relu":
+        activation_func = functions.relu
+    elif activation == "sigmoid":
+        activation_func = functions.sigmoid
     else:
         raise Exception('Non-supported activation function')
 
@@ -23,8 +23,15 @@ def single_layer_forward_propagation(A_prev, W_curr, b_curr, activation="relu"):
 
 
 def init_layers(neural_net, seed = 99):
+    """
+    preconditions:
+        input neural network size (no need to input seed - its default)
+    postconditions:
+        output a neural network with random values for the weights
+    """
     np.random.seed(seed) # randomizes seed parameter in function
-    number_of_layers = len(neural_net) # length of neural net
+    number_of_layers = len(neural_net) # TODO: do we use this?
+    numbe
     params_values = {} # no values yet
 
     for idx, layer in enumerate(neural_net): # for each layer in the network
