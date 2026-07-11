@@ -8,3 +8,6 @@ dependencies = [
     "numpy>=2.5.1",
     "torch>=2.13.0",
 ]
+
+[tool.basedpyright]
+typeCheckingMode = "off"
