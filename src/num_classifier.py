@@ -142,6 +142,21 @@ class ReLU(Layer):
         relu_grad = input > 0
         return grad_output * relu_grad
 
+
+class Sig(Layer):
+    def __init__(self):
+        # ReLU layer simply applies elementwise rectified linear unit to all inputs
+        pass
+
+    def forward(self, input):
+        # Apply elementwise ReLU to [batch, input_units] matrix
+        sig_forward = 1 / (1 + np.exp(-input))
+        return sig_forward
+
+    def backward(self, input, grad_output):
+        sig_grad = input * (1 - input)
+        return grad_output * sig_grad
+
 class Dense(Layer):
     def __init__(self, input_units, output_units, learning_rate = 0.1):
         # A dense layer is a layer which performs a learned affine transformation: f(x) = <W*x> + b
@@ -254,11 +269,12 @@ input_size = X_train.shape[1]
 output_size = Y_train.shape[1]
 
 network = MCP()
-network.add_layer(Dense(input_size, 100, learning_rate = 0.05))
+network.add_layer(Dense(input_size, 1600, learning_rate = 0.05))
 network.add_layer(ReLU())
-network.add_layer(Dense(100, 200, learning_rate = 0.05))
+network.add_layer(Dense(1600, 120, learning_rate = 0.05))
+network.add_layer(Dense(120, 2000, learning_rate = 0.05))
 network.add_layer(ReLU())
-network.add_layer(Dense(200, output_size))
+network.add_layer(Dense(2000, output_size))
 
 train_log = network.train(X_train, Y_train, n_epochs = 10, batch_size = 64)
 plt.plot(train_log,label = 'train accuracy')
