@@ -10,6 +10,10 @@ import math
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pylab import rcParams
+import torch
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
 
 for dirname, _, filenames in os.walk('/input'):
     for filename in filenames:
