@@ -5,7 +5,7 @@ import random
 from os.path  import join
 import struct
 from array import array
-import cupy as np
+import numpy as np
 import math
 import matplotlib.pyplot as plt
 import seaborn as sns

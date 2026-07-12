@@ -2,15 +2,15 @@ from mlxtend.data import loadlocal_mnist
 import pandas as pd
 import os
 import random
-from os.path  import join
+from os.path import join
 import struct
 from array import array
-import cupy as np
+import torch
 import math
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pylab import rcParams
-import torch
+import numpy as np
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
@@ -42,11 +42,9 @@ class MnistDataloader(object):
             image_data = array("B", file.read())
         images = []
         for i in range(size):
-            images.append([0] * rows * cols)
-        for i in range(size):
-            img = np.array(image_data[i * rows * cols:(i + 1) * rows * cols])
+            img = torch.tensor(image_data[i * rows * cols:(i + 1) * rows * cols], dtype=torch.float32, device=device)
             img = img.reshape(28, 28)
-            images[i][:] = img
+            images.append(img)
 
         return images, labels
 
@@ -68,21 +66,6 @@ mnist_dataloader = MnistDataloader(training_images_filepath, training_labels_fil
 (x_train, y_train), (x_test, y_test) = mnist_dataloader.load_data()
 print('MNIST dataset loaded.')
 
-# Show example images
-# def show_images(images, title_texts):
-#     cols = 5
-#     rows = int(len(images)/cols) + 1
-#     plt.figure(figsize=(28, 28))
-#     index = 1
-#     for x in zip(images, title_texts):
-#         image = x[0]
-#         title_text = x[1]
-#         plt.subplot(rows, cols, index)
-#         plt.imshow(image, cmap=plt.cm.gray)
-#         if (title_text != ''):
-#             plt.title(title_text, fontsize = 15)
-#         index += 11
-
 random_images = []
 for i in range(0, 10):
     r = random.randint(1, 60000)
@@ -91,19 +74,17 @@ for i in range(0, 5):
     r = random.randint(1, 10000)
     random_images.append((x_test[r], 'test image [' + str(r) + '] = ' + str(y_test[r])))
 
-#show_images(list(map(lambda x: x[0], random_images)), list(map(lambda x: x[1], random_images)))
-
 def softmax_crossentropy_with_logits(logits, reference_answers):
     # Compute crossentropy from logits[batch,n_classes] and ids of correct answers
-    logits_for_answers = logits[np.arange(len(logits)), reference_answers]
-    xentropy = - logits_for_answers + np.log(np.sum(np.exp(logits), axis=-1))
+    logits_for_answers = logits[torch.arange(len(logits), device=logits.device), reference_answers]
+    xentropy = - logits_for_answers + torch.log(torch.sum(torch.exp(logits), axis=-1))
     return xentropy
 
 def grad_softmax_crossentropy_with_logits(logits, reference_answers):
     # Compute crossentropy gradient from logits[batch,n_classes] and ids of correct answers
-    ones_for_answers = np.zeros_like(logits)
-    ones_for_answers[np.arange(len(logits)), reference_answers] = 1
-    softmax = np.exp(logits) / np.exp(logits).sum(axis=-1,keepdims=True)
+    ones_for_answers = torch.zeros_like(logits)
+    ones_for_answers[torch.arange(len(logits), device=logits.device), reference_answers] = 1
+    softmax = torch.exp(logits) / torch.exp(logits).sum(axis=-1, keepdims=True)
     return (- ones_for_answers + softmax) / logits.shape[0]
 
 # A building block. Each layer is capable of performing two things:
@@ -127,8 +108,8 @@ class Layer(object):
         # If our layer has parameters (e.g. dense layer), we also need to update them here using d loss / d layer
         # The gradient of a dummy layer is precisely grad_output, but we'll write it more explicitly
         num_units = input.shape[1]
-        d_layer_d_input = np.eye(num_units)
-        return np.dot(grad_output, d_layer_d_input) # chain rule
+        d_layer_d_input = torch.eye(num_units, device=input.device)
+        return torch.matmul(grad_output, d_layer_d_input) # chain rule
 
 
 class ReLU(Layer):
@@ -138,12 +119,12 @@ class ReLU(Layer):
 
     def forward(self, input):
         # Apply elementwise ReLU to [batch, input_units] matrix
-        relu_forward = np.maximum(0, input)
+        relu_forward = torch.maximum(input, torch.tensor(0.0, device=input.device))
         return relu_forward
 
     def backward(self, input, grad_output):
         # Compute gradient of loss w.r.t. ReLU input
-        relu_grad = input > 0
+        relu_grad = (input > 0).float()
         return grad_output * relu_grad
 
 
@@ -154,7 +135,7 @@ class Sig(Layer):
 
     def forward(self, input):
         # Apply elementwise ReLU to [batch, input_units] matrix
-        sig_forward = 1 / (1 + np.exp(-input))
+        sig_forward = 1 / (1 + torch.exp(-input))
         return sig_forward
 
     def backward(self, input, grad_output):
@@ -165,21 +146,22 @@ class Dense(Layer):
     def __init__(self, input_units, output_units, learning_rate = 0.1):
         # A dense layer is a layer which performs a learned affine transformation: f(x) = <W*x> + b
         self.learning_rate = learning_rate
-        self.weights = np.random.normal(loc=0.0, scale = np.sqrt(2 / (input_units + output_units)), size = (input_units, output_units))
-        self.biases = np.zeros(output_units)
+        scale = math.sqrt(2 / (input_units + output_units))
+        self.weights = torch.randn(input_units, output_units, device=device) * scale
+        self.biases = torch.zeros(output_units, device=device)
 
     def forward(self, input):
         # Perform an affine transformation: f(x) = <W*x> + b
         # input shape: [batch, input_units]
         # output shape: [batch, output units]
-        return np.dot(input, self.weights) + self.biases
+        return torch.matmul(input, self.weights) + self.biases
 
     def backward(self, input, grad_output):
         # compute d f / d x = d f / d dense * d dense / d x where d dense/ d x = weights transposed
-        grad_input = np.dot(grad_output, self.weights.T)
+        grad_input = torch.matmul(grad_output, self.weights.T)
 
         # compute gradient w.r.t. weights and biases
-        grad_weights = np.dot(input.T, grad_output)
+        grad_weights = torch.matmul(input.T, grad_output)
         grad_biases = grad_output.mean(axis=0) * input.shape[0]
         assert grad_weights.shape == self.weights.shape and grad_biases.shape == self.biases.shape
 
@@ -224,7 +206,7 @@ class MCP(object):
         logits = layer_activations[-1]
 
         # Compute the loss and the initial gradient
-        y_argmax =  y.argmax(axis=1)
+        y_argmax = y.argmax(axis=1)
         loss = softmax_crossentropy_with_logits(logits, y_argmax)
         loss_grad = grad_softmax_crossentropy_with_logits(logits, y_argmax)
 
@@ -234,7 +216,7 @@ class MCP(object):
             layer = self.layers[layer_index]
             loss_grad = layer.backward(layer_inputs[layer_index], loss_grad) # grad w.r.t. input, also weight updates
 
-        return np.mean(loss)
+        return torch.mean(loss)
 
     def train(self, X_train, y_train, n_epochs = 25, batch_size = 32):
         train_log = []
@@ -242,11 +224,11 @@ class MCP(object):
         for epoch in range(n_epochs):
             for i in range(0, X_train.shape[0], batch_size):
                 # Get pair of (X, y) of the current minibatch/chunk
-                x_batch = np.array([x.flatten() for x in X_train[i:i + batch_size]])
-                y_batch = np.array([y for y in y_train[i:i + batch_size]])
+                x_batch = torch.stack([x.flatten().float() for x in X_train[i:i + batch_size]])
+                y_batch = torch.stack([y.clone().detach().float() for y in y_train[i:i + batch_size]])
                 self.train_batch(x_batch, y_batch)
 
-            train_log.append(np.mean(self.predict(X_train) ==  y_train.argmax(axis=-1)))
+            train_log.append(torch.mean((self.predict(X_train) == y_train.argmax(axis=-1)).float()).item())
             print(f"Epoch: {epoch + 1}, Train accuracy: {train_log[-1]}")
         return train_log
 
@@ -256,16 +238,16 @@ class MCP(object):
         return logits.argmax(axis=-1)
 
 def normalize(X):
-    X_normalize = (X - np.min(X)) / (np.max(X) - np.min(X))
+    X_normalize = (X - torch.min(X)) / (torch.max(X) - torch.min(X))
     return X_normalize
 
 def one_hot(a, num_classes):
-    return np.squeeze(np.eye(num_classes)[a.reshape(-1)])
+    return torch.squeeze(torch.eye(num_classes, device=device)[a.reshape(-1).long()])
 
-X_train = normalize(np.array([np.ravel(x) for x in x_train]))
-X_test = normalize(np.array([np.ravel(x) for x in x_test]))
-Y_train = np.array([one_hot(np.array(y, dtype=int), 10) for y in y_train], dtype=int)
-Y_test = np.array([one_hot(np.array(y, dtype=int), 10) for y in y_test], dtype=int)
+X_train = normalize(torch.stack([x.flatten().float() for x in x_train]))
+X_test = normalize(torch.stack([x.flatten().float() for x in x_test]))
+Y_train = torch.stack([one_hot(torch.tensor(y, dtype=torch.int, device=device), 10).float() for y in y_train])
+Y_test = torch.stack([one_hot(torch.tensor(y, dtype=torch.int, device=device), 10).float() for y in y_test])
 
 print('X_train.shape', X_train.shape)
 print('Y_train.shape', Y_train.shape)
@@ -273,37 +255,39 @@ input_size = X_train.shape[1]
 output_size = Y_train.shape[1]
 
 network = MCP()
-network.add_layer(Dense(input_size, 1600, learning_rate = 0.05))
+network.add_layer(Dense(input_size, 16000, learning_rate = 0.05))
 network.add_layer(ReLU())
-network.add_layer(Dense(1600, 120, learning_rate = 0.05))
-network.add_layer(Dense(120, 2000, learning_rate = 0.05))
+network.add_layer(Dense(16000, 1200, learning_rate = 0.05))
+network.add_layer(Dense(1200, 20000, learning_rate = 0.05))
 network.add_layer(ReLU())
-network.add_layer(Dense(2000, output_size))
+network.add_layer(Dense(20000, output_size))
 
-train_log = network.train(X_train, Y_train, n_epochs = 10, batch_size = 64)
-plt.plot(train_log,label = 'train accuracy')
+train_log = network.train(X_train, Y_train, n_epochs = 32, batch_size = 64)
+plt.plot(train_log, label = 'train accuracy')
 plt.legend(loc='best')
 plt.grid()
 plt.show()
 
-
-test_corrects = len(list(filter(lambda x: x, network.predict(X_test) ==  Y_test.argmax(axis=-1))))
+test_corrects = (network.predict(X_test) == Y_test.argmax(axis=-1)).sum().item()
 test_all = len(X_test)
-test_accuracy = test_corrects/test_all #np.mean(test_errors)
+test_accuracy = test_corrects / test_all
 print(f"Test accuracy = {test_corrects}/{test_all} = {test_accuracy}")
 
 print(network.predict(X_test[1:2]))
 
 def visualize_input(img, ax):
+    # Convert tensor to numpy for matplotlib
+    if torch.is_tensor(img):
+        img = img.cpu().numpy()
     ax.imshow(img, cmap='gray')
     width, height = img.shape
-    thresh = img.max()/2.5
+    thresh = img.max() / 2.5
     for x in range(width):
         for y in range(height):
-            ax.annotate(str(round(img[x][y],2)), xy=(y,x),
+            ax.annotate(str(round(img[x][y], 2)), xy=(y, x),
                         horizontalalignment='center',
                         verticalalignment='center',
-                        color='white' if img[x][y]<thresh else 'black')
+                        color='white' if img[x][y] < thresh else 'black')
 
 
 def draw_digit():
@@ -356,9 +340,9 @@ def draw_digit():
     return canvas
 
 def preprocess(img):
-    img = img.astype(np.float32)
-    img = (img - img.min()) / (img.max() - img.min() + 1e-8)
-    return img.reshape(1, 784)
+    img_tensor = torch.tensor(img, dtype=torch.float32, device=device)
+    img_tensor = (img_tensor - img_tensor.min()) / (img_tensor.max() - img_tensor.min() + 1e-8)
+    return img_tensor.reshape(1, 784)
 
 
 fig = plt.figure(figsize = (12,12))
@@ -369,4 +353,4 @@ while True:
     custom_img = draw_digit()
     X_custom = preprocess(custom_img)
     prediction = network.predict(X_custom)
-    print("Model prediction:", prediction[0])
+    print("Model prediction:", prediction[0].item())
