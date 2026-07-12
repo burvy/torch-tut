@@ -30,3 +30,10 @@ for epoch in range(epochs):
     w_output += activation_hidden.T.dot(dZ) # .T is the transpose of a matrix ( flips on side )
     dH = dZ.dot(w_output.T) * d_sigmoid(activation_hidden)
     w_hidden += X.T.dot(dH)
+
+X_test = X[0]
+print("input:", X_test)
+act_hidden = sigmoid(np.dot(X_test, w_hidden))
+np.round(np.dot(act_hidden, w_output))
+
+print("output:", np.array([0.]))
