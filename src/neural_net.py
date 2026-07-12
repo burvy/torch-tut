@@ -10,7 +10,10 @@ NEURAL_NET = [
 ]
 
 def single_layer_forward_propagation(A_prev, W_curr, b_curr, activation="relu"):
-    Z_curr = np.dot(W_curr, A_prev) + b_curr
+    """
+    A_prev is the input signal (probably)
+    """
+    Z_curr = np.dot(W_curr, A_prev) + b_curr # batch apply multiplications dont matter
 
     if activation == "relu":
         activation_func = functions.relu
@@ -19,7 +22,25 @@ def single_layer_forward_propagation(A_prev, W_curr, b_curr, activation="relu"):
     else:
         raise Exception('Non-supported activation function')
 
-    return activation_func(Z_curr), Z_curr
+    return activation_func(Z_curr), Z_curr # f(x), x of the activation function
+
+def full_forward_propagation(X, params_values, nn_architecture):
+    memory = {}
+    A_curr = X
+
+    for idx, layer in enumerate(nn_architecture):
+        layer_idx = idx + 1
+        A_prev = A_curr
+
+        activ_function_curr = layer["activation"]
+        W_curr = params_values["W" + str(layer_idx)]
+        b_curr = params_values["b" + str(layer_idx)]
+        A_curr, Z_curr = single_layer_forward_propagation(A_prev, W_curr, b_curr, activ_function_curr)
+
+        memory["A" + str(idx)] = A_prev
+        memory["Z" + str(layer_idx)] = Z_curr
+
+    return A_curr, memory
 
 
 def init_layers(neural_net, seed = 99):
@@ -30,8 +51,7 @@ def init_layers(neural_net, seed = 99):
         output a neural network with random values for the weights
     """
     np.random.seed(seed) # randomizes seed parameter in function
-    number_of_layers = len(neural_net) # TODO: do we use this?
-    numbe
+    # number_of_layers = len(neural_net) # TODO: do we use this?
     params_values = {} # no values yet
 
     for idx, layer in enumerate(neural_net): # for each layer in the network
